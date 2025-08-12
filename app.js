@@ -1,5 +1,4 @@
-// app.js modificato con rilevamento lingue dal JSON e gestione tendine
-
+// app.js — multilingua con caricamento JSON, soglia di passaggio e audio (SpeechSynthesis)
 const PAGE_SIZE = 20;
 let words = [];
 let currentPage = 0;
@@ -75,9 +74,10 @@ function renderMemorizeView(){
   const list = el('wordList');
   list.innerHTML = '';
   const pageWords = wordsForPage(currentPage);
-  pageWords.forEach(p => {
+  pageWords.forEach((p, idx) => {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="q">${p[questionLang]}</span><span class="a">${p[answerLang]}</span>`;
+    li.innerHTML = `<span class="q">${p[questionLang]}</span><span class="a">${p[answerLang]}</span>` +
+                   `<button type="button" class="speak-btn" onclick="speak('${encodeURIComponent(p[questionLang])}')">🔊</button>`;
     list.appendChild(li);
   });
   renderPageInfo();
@@ -94,11 +94,14 @@ function startQuiz(){
   const ol = el('quizList');
   ol.innerHTML = '';
   pageWords.forEach((p, idx) => {
+    const q = p[questionLang];
     const li = document.createElement('li');
     li.className = 'quiz-item';
-    li.innerHTML = `<label>${idx+1}. ${p[questionLang]}</label><input type="text" data-idx="${idx}" />`;
+    li.innerHTML = `<label>${idx+1}. ${q} <button type="button" class="speak-btn" onclick="speak('${encodeURIComponent(q)}')">🔊</button></label>` +
+                   `<input type="text" data-idx="${idx}" />`;
     ol.appendChild(li);
   });
+  el('nextPageBtn').disabled = true; // blocca avanzamento finché non superi la soglia
   showElement('memorizeView', false);
   showElement('quizView', true);
   showElement('scoreBox', false);
@@ -110,7 +113,7 @@ function startQuiz(){
 }
 
 function normalize(s){
-  return s ? s.toString().trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') : '';
+  return s ? s.toString().trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') : '';
 }
 
 function checkAnswers(){
@@ -128,19 +131,32 @@ function checkAnswers(){
   saveAttempt(currentPage);
   const box = el('scoreBox');
   box.innerHTML = `Hai ottenuto <strong>${percent}%</strong> (${correct}/${pageWords.length}). ` +
-    (correct >= required ? 'Hai passato la pagina ✅' : `Devi raggiungere almeno ${required} risposte corrette per passare (90%).` );
+    (correct >= required ? '<span style="color:green">Hai passato la pagina ✅</span>' : `<span style="color:red">Devi raggiungere almeno ${required} risposte corrette per passare (90%).</span>`);
   showElement('scoreBox', true);
-  if(correct >= required){
-    currentPage = Math.min(totalPages()-1, currentPage + 1);
-    saveProgress();
-    renderMemorizeView();
-    showElement('memorizeView', true);
-    showElement('quizView', false);
-  } else {
-    showElement('memorizeView', true);
-    showElement('quizView', false);
-  }
+  el('nextPageBtn').disabled = !(correct >= required);
   renderAttempts();
+}
+
+function goToNextPage(){
+  currentPage = Math.min(totalPages()-1, currentPage + 1);
+  saveProgress();
+  renderMemorizeView();
+  showElement('memorizeView', true);
+  showElement('quizView', false);
+}
+
+function speak(encodedText){
+  const text = decodeURIComponent(encodedText);
+  if(!window.speechSynthesis) return;
+  const utterance = new SpeechSynthesisUtterance(text);
+  // euristica: scegli voce in base alla lingua della domanda
+  const langKey = (questionLang || '').toLowerCase();
+  if(langKey.includes('ital')) utterance.lang = 'it-IT';
+  else if(langKey.includes('campidan') || langKey.includes('sard')) utterance.lang = 'it-IT'; // fallback per sardo
+  else if(langKey.includes('german')) utterance.lang = 'de-DE';
+  else if(langKey.includes('english') || langKey.includes('ingles')) utterance.lang = 'en-US';
+  else utterance.lang = 'it-IT'; // default
+  speechSynthesis.speak(utterance);
 }
 
 function saveAttempt(page){
@@ -196,5 +212,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   renderAttempts();
   el('toQuizBtn').addEventListener('click', startQuiz);
   el('checkBtn').addEventListener('click', checkAnswers);
+  el('nextPageBtn').addEventListener('click', goToNextPage);
   el('resetBtn').addEventListener('click', resetProgress);
 });
