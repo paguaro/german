@@ -1,1 +1,51 @@
-<PASTE THE UPDATED index.html CONTENT HERE>
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
+  <title>Trainer Multilingue</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Trainer Multilingue</h1>
+      <div id="pageInfo">Pagina <span id="currentPage">1</span> / <span id="totalPages">1</span></div>
+    </header>
+
+    <div class="lang-controls">
+      <label>Lingua domanda: <select id="questionLang"></select></label>
+      <label>Lingua risposta: <select id="answerLang"></select></label>
+      <input type="file" id="fileInput" accept="application/json" />
+    </div>
+
+    <main>
+      <section id="memorizeView" class="view">
+        <p class="hint">Fase memorizzazione — leggi e memorizza le parole (20 per pagina)</p>
+        <ul id="wordList"></ul>
+        <button id="toQuizBtn" class="primary">Passa al Quiz</button>
+      </section>
+
+      <section id="quizView" class="view hidden">
+        <p class="hint">Fase quiz — scrivi la traduzione nella lingua di risposta</p>
+        <form id="quizForm">
+          <ol id="quizList"></ol>
+          <div class="actions">
+            <button type="button" id="checkBtn" class="primary">Verifica</button>
+          </div>
+        </form>
+        <div id="scoreBox" class="hidden"></div>
+      </section>
+    </main>
+
+    <footer>
+      <div id="progressInfo">Tentativi pagina: <span id="attempts">0</span></div>
+      <div class="footer-actions">
+        <button id="resetBtn" class="danger">Reset Progresso</button>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
