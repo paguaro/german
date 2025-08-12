@@ -1,4 +1,4 @@
-// app.js — multilingua con caricamento JSON, soglia di passaggio e audio (SpeechSynthesis)
+// app.js — multilingua con caricamento JSON, soglia di passaggio, audio robusto e highlighting errori
 const PAGE_SIZE = 20;
 let words = [];
 let currentPage = 0;
@@ -7,7 +7,19 @@ let userAnswers = [];
 let questionLang = '';
 let answerLang = '';
 
+// voci TTS
+let availableVoices = [];
+
 function el(id){ return document.getElementById(id) }
+
+function initVoices(){
+  if(!('speechSynthesis' in window)) return;
+  availableVoices = window.speechSynthesis.getVoices() || [];
+}
+if('speechSynthesis' in window){
+  initVoices();
+  window.speechSynthesis.onvoiceschanged = initVoices;
+}
 
 async function loadWordsFromUrl(url){
   try {
@@ -76,8 +88,9 @@ function renderMemorizeView(){
   const pageWords = wordsForPage(currentPage);
   pageWords.forEach((p, idx) => {
     const li = document.createElement('li');
+    const encoded = encodeURIComponent(p[questionLang] ?? '');
     li.innerHTML = `<span class="q">${p[questionLang]}</span><span class="a">${p[answerLang]}</span>` +
-                   `<button type="button" class="speak-btn" onclick="speak('${encodeURIComponent(p[questionLang])}')">🔊</button>`;
+                   `<button type="button" class="speak-btn" data-say="${encoded}">🔊</button>`;
     list.appendChild(li);
   });
   renderPageInfo();
@@ -94,10 +107,11 @@ function startQuiz(){
   const ol = el('quizList');
   ol.innerHTML = '';
   pageWords.forEach((p, idx) => {
-    const q = p[questionLang];
+    const q = p[questionLang] ?? '';
+    const encoded = encodeURIComponent(q);
     const li = document.createElement('li');
     li.className = 'quiz-item';
-    li.innerHTML = `<label>${idx+1}. ${q} <button type="button" class="speak-btn" onclick="speak('${encodeURIComponent(q)}')">🔊</button></label>` +
+    li.innerHTML = `<label>${idx+1}. ${q} <button type="button" class="speak-btn" data-say="${encoded}">🔊</button></label>` +
                    `<input type="text" data-idx="${idx}" />`;
     ol.appendChild(li);
   });
@@ -113,25 +127,43 @@ function startQuiz(){
 }
 
 function normalize(s){
-  return s ? s.toString().trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') : '';
+  return s ? s.toString().trim().toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '') : '';
 }
 
 function checkAnswers(){
   const pageWords = wordsForPage(currentPage);
   const inputs = document.querySelectorAll('#quizList input');
+  // pulizia feedback precedente
+  document.querySelectorAll('#quizList .quiz-item').forEach(li=>{
+    li.classList.remove('correct','wrong');
+    const fb = li.querySelector('.feedback'); if(fb) fb.remove();
+  });
   let correct = 0;
   inputs.forEach(inp => {
     const idx = parseInt(inp.dataset.idx,10);
     const given = normalize(inp.value);
-    const expected = normalize(pageWords[idx][answerLang]);
-    if(given === expected) { correct += 1; inp.style.borderColor = '#0a0' } else { inp.style.borderColor = '#a00' }
+    const expectedRaw = pageWords[idx][answerLang] ?? '';
+    const expected = normalize(expectedRaw);
+    const li = inp.closest('.quiz-item');
+    if(given === expected && given.length > 0){
+      correct += 1;
+      li.classList.add('correct');
+    } else {
+      li.classList.add('wrong');
+      const fb = document.createElement('div');
+      fb.className = 'feedback';
+      fb.innerHTML = `Corretto: <strong>${expectedRaw}</strong>` + (given.length === 0 ? ' (mancante)' : '');
+      li.appendChild(fb);
+    }
   });
-  const required = Math.ceil(pageWords.length * 0.9);
-  const percent = Math.round((correct / pageWords.length) * 100);
+  const total = pageWords.length;
+  const required = Math.ceil(total * 0.9);
+  const percent = Math.round((correct / total) * 100);
   saveAttempt(currentPage);
   const box = el('scoreBox');
-  box.innerHTML = `Hai ottenuto <strong>${percent}%</strong> (${correct}/${pageWords.length}). ` +
-    (correct >= required ? '<span style="color:green">Hai passato la pagina ✅</span>' : `<span style="color:red">Devi raggiungere almeno ${required} risposte corrette per passare (90%).</span>`);
+  box.innerHTML = `Esatte: <strong>${correct}</strong> su <strong>${total}</strong> — ${percent}%.
+    ` + (correct >= required ? '<span style="color:green">Hai passato la pagina ✅</span>' :
+    `<span style="color:red">Devi raggiungere almeno ${required} risposte corrette (90%).</span>`);
   showElement('scoreBox', true);
   el('nextPageBtn').disabled = !(correct >= required);
   renderAttempts();
@@ -145,18 +177,44 @@ function goToNextPage(){
   showElement('quizView', false);
 }
 
-function speak(encodedText){
-  const text = decodeURIComponent(encodedText);
-  if(!window.speechSynthesis) return;
-  const utterance = new SpeechSynthesisUtterance(text);
-  // euristica: scegli voce in base alla lingua della domanda
-  const langKey = (questionLang || '').toLowerCase();
-  if(langKey.includes('ital')) utterance.lang = 'it-IT';
-  else if(langKey.includes('campidan') || langKey.includes('sard')) utterance.lang = 'it-IT'; // fallback per sardo
-  else if(langKey.includes('german')) utterance.lang = 'de-DE';
-  else if(langKey.includes('english') || langKey.includes('ingles')) utterance.lang = 'en-US';
-  else utterance.lang = 'it-IT'; // default
-  speechSynthesis.speak(utterance);
+function mapLang(key){
+  const k = (key || '').toLowerCase();
+  if(k.includes('ital')) return 'it-IT';
+  if(k.includes('campidan') || k.includes('sard')) return 'it-IT'; // fallback per sardo
+  if(k.includes('german') || k.includes('tedesc')) return 'de-DE';
+  if(k.includes('portug') || k.includes('portogh')) return 'pt-PT';
+  if(k.includes('span') || k.includes('spagn')) return 'es-ES';
+  if(k.includes('english') || k.includes('ingles')) return 'en-US';
+  return 'it-IT';
+}
+
+function pickVoice(langTag){
+  if(!availableVoices || !availableVoices.length) return null;
+  let v = availableVoices.find(v=> (v.lang||'').toLowerCase() === langTag.toLowerCase());
+  if(v) return v;
+  v = availableVoices.find(v=> (v.lang||'').toLowerCase().startsWith(langTag.slice(0,2).toLowerCase()));
+  return v || null;
+}
+
+function speakText(text, langHint){
+  if(!('speechSynthesis' in window)) return;
+  const lang = mapLang(langHint);
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = lang;
+  const voice = pickVoice(lang);
+  if(voice) u.voice = voice;
+  u.rate = 1; u.pitch = 1;
+  // su iOS a volte serve cancellare la coda prima
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(u);
+}
+
+function handleSpeakButton(e){
+  const btn = e.target.closest('.speak-btn');
+  if(!btn) return;
+  const encoded = btn.getAttribute('data-say') || '';
+  const text = decodeURIComponent(encoded);
+  speakText(text, questionLang);
 }
 
 function saveAttempt(page){
@@ -200,6 +258,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   await loadWordsFromUrl('words.json');
   loadProgress();
   populateLanguageSelectors();
+  // delega per pulsanti audio (funziona anche su contenuti generati)
+  document.body.addEventListener('click', handleSpeakButton);
   el('questionLang').addEventListener('change', ()=>{ questionLang = el('questionLang').value; saveProgress(); renderMemorizeView(); });
   el('answerLang').addEventListener('change', ()=>{ answerLang = el('answerLang').value; saveProgress(); renderMemorizeView(); });
   el('fileInput').addEventListener('change', e => {
